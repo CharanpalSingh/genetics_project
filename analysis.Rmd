@@ -1,0 +1,686 @@
+---
+title: "Untitled"
+output:  powerpoint_presentation
+date: "2024-07-12"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+
+```{r load in data, include=FALSE}
+library(tidyverse)
+library(tidylog)
+library(janitor)
+library(skimr)
+library(DataExplorer)
+library(car)
+library(lvmisc)
+library(readr)
+library(outliers)
+library(purrr)
+library(corrplot)
+library(RColorBrewer)
+library(gtsummary)
+library(mice)
+library(lubridate)
+
+genetic_data <- read_delim("genetic_data.txt", 
+    delim = "\t", escape_double = FALSE, 
+    trim_ws = TRUE)
+
+
+find_outliers <- function(dataframe){
+dataframe %>%
+     select_if(is.numeric) %>% 
+      map(~ boxplot.stats(.x)$out) 
+  
+
+}
+#replace outliers with NA
+outlierreplacement <- function(dataframe){
+   dataframe %>%          
+           map_if(is.numeric, ~ replace(.x, .x %in% boxplot.stats(.x)$out, NA)) %>%
+           bind_cols 
+         
+
+  
+}
+
+#find_outliers(Clean_Data)
+
+#Warning: Expecting numeric in I2066 / R2066C9: got '23.w0'
+#participant 2 weight is 23.wo clearly a error was replaced to NA, Should ask first or replace with NA (blank in excel file)
+#participant id  2 may be an error too
+#Replaced all NA text to blank in excel file
+library(readxl)
+clinical_data <- read_excel("clinical_data_cleaned.xlsx", 
+    col_types = c("numeric", "numeric", "numeric", 
+        "numeric", "numeric", "date", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "text", "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric"))
+
+#change all 999 values to unknown
+clinical_data[clinical_data ==999] <- NA
+clinical_data[clinical_data ==999999] <- NA
+clinical_data[clinical_data ==99999] <- NA
+#changed 999 (Unknown / Don't know) to NA could include 999
+
+# clinical_data=clinical_data %>% mutate(sex=factor(case_when(sex==1~"Male",sex==2~"Female",sex==3~"Other",sex==4~"Confidential")))
+# clinical_data=clinical_data %>% mutate(gender=factor(case_when(gender==1~"Male",gender==2~"Female",gender==3~"Gender Diverse",gender==4~"Other",gender==5~"Confidential")))
+
+clinical_data=clinical_data %>% mutate(sex=factor(case_when(sex==1~"Male",sex==2~"Female",sex==3~"Other")))
+clinical_data=clinical_data %>% mutate(gender=factor(case_when(gender==1~"Male",gender==2~"Female",gender==3~"Gender Diverse",gender==4~"Other")))
+
+clinical_data=clinical_data %>% mutate(qreporting=factor(case_when(qreporting==1~"Parent",qreporting==2~"Self")))
+clinical_data=clinical_data %>% mutate(participant_information_complete=case_when(participant_information_complete==0~0,participant_information_complete==2~1))
+
+#change 0 if they answerd no to mental health problems
+# clinical_data=clinical_data %>%
+#   mutate(dx_anx = ifelse(menthealth_screen == 0, menthealth_screen, dx_anx)) %>% 
+#   mutate(dx_adhd = ifelse(menthealth_screen == 0, menthealth_screen, dx_adhd)) %>% 
+#   mutate(dx_asd = ifelse(menthealth_screen == 0, menthealth_screen, dx_asd)) %>% 
+#   mutate(dx_id = ifelse(menthealth_screen == 0, menthealth_screen, dx_id)) %>% 
+#   mutate(dx_ld = ifelse(menthealth_screen == 0, menthealth_screen, dx_ld)) %>% 
+#   mutate(dx_ld = ifelse(menthealth_screen == 0, menthealth_screen, dx_ld)) %>% 
+#   mutate(dx_ocd = ifelse(menthealth_screen == 0, menthealth_screen, dx_ocd)) %>% 
+#   mutate(dx_odd = ifelse(menthealth_screen == 0, menthealth_screen, dx_ocd)) %>% 
+#   mutate(dx_odd = ifelse(menthealth_screen == 0, menthealth_screen, dx_odd)) %>% 
+#   mutate(dx_spcd = ifelse(menthealth_screen == 0, menthealth_screen, dx_spcd)) %>% 
+#   mutate(dx_odd = ifelse(menthealth_screen == 0, menthealth_screen, dx_odd)) %>% 
+#   mutate(dx_tics = ifelse(menthealth_screen == 0, menthealth_screen, dx_tics)) %>% 
+
+
+clinical_data=clinical_data %>% mutate(across(dx_anx:dx_tics, ~ ifelse(is.na(.) & menthealth_screen == 0, 0,.)))
+
+clinical_data=clinical_data %>% 
+  mutate(across(dx_anx:dx_tics,
+                factor))
+
+clinical_data$menthealth_screen=as.factor(clinical_data$menthealth_screen)
+clinical_data$dx_other_dis_info=as.factor(clinical_data$dx_other_dis_info)
+
+table(clinical_data$dx_schizo,useNA = "always")
+
+#could create bmi variable
+#https://search.r-project.org/CRAN/refmans/lvmisc/html/bmi_cat.html#:~:text=Underweight%20(18.5%20%3C%20BMI),(30%20%E2%89%A4%20BMI%20%3C%2035)
+## Formula: BMI = Weight (kg) / Height (m) x Height (m) 
+#divide  height in our dataset by 100 to get height in m
+#bmi <- wgt / (hgt_m ^ 2) 
+clinical_data=clinical_data %>% mutate(height_m=height/100)
+clinical_data=clinical_data %>% mutate(bmi=bmi(weight, height_m))
+clinical_data=clinical_data %>% mutate(bmi_class=bmi_cat(bmi))
+
+n_distinct(clinical_data$participant_id)
+n_distinct(clinical_data$family_id)
+n_distinct(clinical_data$date)
+#genetic data
+
+genetic_data$participant_id=as.numeric(genetic_data$participant_id)
+skim(genetic_data)
+genetic_data =genetic_data%>% replace_na(list(participant_id = 10194))
+n_distinct(genetic_data$participant_id)
+
+
+```
+# Prelimary Steps for Data Cleaning |Clincal data
+
+- participant ID  2 (possibly) and weight of 23.wo  is an error. Changed weight to NA
+- Many 999 (unknown) and some 99999/999999 values for height and weight, 
+- changed  999/999999 to NA  throughout the dataset
+- changed prefer not to answer responses for sex and gender to NA
+- created BMI variable from height and weight to further filter out unusual responses in the future
+- Participation_information_complete had 2 response for yes
+-
+
+
+# Prelimary Steps for Data Cleaning |Genetic data
+- participant ID 10194W is an error, changed ID to 10194
+
+
+# Data Cleaning steps 
+
+	1. Clean column names
+	2. Fix structural errors 
+	3. Remove or identify empty rows 
+	4. Remove or identify constant data 
+	5. Remove duplicates 
+	6. Find outliers 
+  7. Impute missing data 
+  
+
+
+```{r Data cleaning, include=FALSE}
+
+#####clinical data
+
+#removing empty rows 
+
+clinical_data_clean=clinical_data%>%
+  remove_empty(which = c("rows", "cols"))
+
+#removing constant data
+
+#clinical_data_clean=clinical_data%>%remove_constant()
+
+#dx_schizo is contant, is this useful, all patients had Schizophrenia, 
+#was changed based on mental health response
+#below is code to find variables with constant data
+
+# clinical_data_clean %>%
+#   dplyr::select_at(setdiff(names(.), names(remove_constant(.)))) %>%
+#   unique()
+
+#get duplicates
+get_dupes(clinical_data_clean)
+
+
+#####genetic data
+
+
+#removing empty rows 
+
+genetic_data_clean=genetic_data%>%
+  remove_empty(which = c("rows", "cols"))
+
+
+genetic_data_clean=genetic_data%>%remove_constant()
+
+
+genetic_data_clean=clean_names(genetic_data)
+
+#below is code to find variables with constant data, no constant data present for genetic data
+# genetic_data_clean %>%
+#   dplyr::select_at(setdiff(names(.), names(remove_constant(.)))) %>%
+#   unique()
+
+#get duplicates
+get_dupes(genetic_data)
+
+```
+
+# Data Cleaning |Clincal data
+
+- Insured classes of variables represented the type of data (weight should be numeric etc)
+- Duplicates within dx_other_dis_text, need to merge some responses
+- No empty rows
+- dx_schizo has only values of 1 
+- mental health responses changed to 0 based on mentalhealth_screen (decreased NAs by 83% for each)
+
+```{r eval=F, echo=T}
+clinical_data=clinical_data %>% mutate(across(dx_anx:dx_tics, ~ ifelse(is.na(.) & menthealth_screen == 0, 0,.)))
+```
+
+- 2136 distinct participants (no duplicate ids)
+- 1503 families
+- no duplicate rows
+
+
+
+
+# Data Exploration |Clincal data
+```{r echo=FALSE}
+clinical_data_clean %>% 
+ select(weight,height,bmi,age_at_enrollment,starts_with("swan_"),starts_with("tocs_"),starts_with("rcad") ) %>% skim()
+```
+
+
+# Histrograms of all continuous variables in clinical dataset
+```{r echo=FALSE}
+clinical_hist=clinical_data_clean %>% 
+ select(weight,height,bmi,age_at_enrollment,starts_with("swan_"),starts_with("tocs_"),starts_with("rcad") ) %>% 
+  gather %>% 
+  ggplot(aes(x = value)) + facet_wrap(~ key, scales = "free", nrow = 3) +
+  geom_histogram()
+
+clinical_hist
+```
+
+
+# Box plots of all continuous variables in clinical dataset
+```{r echo=FALSE, warning=FALSE}
+boxplot_all=clinical_data_clean %>% 
+  select(weight,height,bmi,age_at_enrollment,starts_with("swan_"),starts_with("tocs_"),starts_with("rcad") ) %>% 
+  gather %>% 
+  ggplot(aes(x = 1, y = value)) + facet_wrap(~ key, scales = "free") + 
+  geom_boxplot() +
+  ylab("Value") +
+  xlab("Variable")
+
+boxplot_all
+
+clincal_data_outliers=find_outliers(clinical_data_clean)
+```
+
+
+```{r eval=FALSE, include=FALSE}
+#using rstatix package
+clinical_data_clean %>% identify_outliers(age_at_enrollment) %>% select(participant_id,age_at_enrollment)
+```
+
+
+# Data Exploration| Clincal data
+
+-Outlier for age at enrollment at -16.02, participant 11856
+-Outliers for height and weight, some numbers seem impossible
+-For categorical variables can perform t-tests or chi-squared tests
+- a continuous variable and a categorical variable t-test or anova
+- Correlation between two categorical variables, chi- squared test
+
+```{r skim numeric}
+
+clinical_data_numeric=clinical_data_clean %>% select(-c(participant_id,family_id)) %>%  select_if(is.numeric) 
+
+skim(clinical_data_numeric)
+
+```
+
+# Data Exploration| Clincal data|Categorical
+```{r}
+  clinical_data_clean %>% select(sex,tocs_mf_tscores) %>%
+  tbl_summary(
+    by = sex,type=list(tocs_mf_tscores ~ "continuous"),
+    digits = all_continuous() ~ 2,
+    missing_text = "(Missing)"
+  ) %>% add_p(all_continuous() ~ 't.test')
+
+```
+
+
+
+```{r BMI counts}
+  BMI_plot=clinical_data_clean %>% 
+  count(bmi_class) %>%
+  ggplot(aes(reorder(bmi_class, n), n)) +
+  geom_col() +
+  coord_flip() +
+  ggtitle("Total count of BMI")+ylab("Count") + xlab("BMI Class")
+
+ BMI_plot
+
+
+```
+
+```{r date counts by month and year}
+date_counts=clinical_data_clean %>%
+mutate(month = format(date, "%m"), year = format(date, "%Y")) %>%
+group_by(month, year) %>%
+summarise(total = n()) 
+
+date_counts
+```
+
+
+
+```{r include=FALSE}
+####Clinical data
+
+boxplot(clinical_data_numeric$age_at_enrollment)
+outlier(clinical_data$age_at_enrollment)
+outlier(clinical_data$age_at_enrollment,opposite = TRUE)
+
+Boxplot(age_at_enrollment~sex,data=clinical_data_clean,id.method="participant_id")
+Boxplot(weight~sex,data=clinical_data_clean,id.method="participant_id")
+
+min(clinical_data$age_at_enrollment)
+
+#bivariate geom_point plots using ggplot
+```
+
+```{r skim factor/date}
+clinical_data_clean %>% select(dx_other_dis_info,dx_other_dis_text,sex,gender,bmi_class,qreporting,menthealth_screen,dx_anx:dx_tics,date) %>% skim()
+```
+
+
+
+
+# Data Exploration| Clincal data
+
+Now for correlation plot of the all the continuous variables. Can see that BMI is obviously going to be highly correlated with height and weight.  Can see from the plot that some t-scores are highly correlated to each other as well. 
+```{r}
+#Tell the correlation to ignore the NAs with use argument
+cor_clinical_numeric=clinical_data_clean %>% 
+  select(weight,height,bmi,age_at_enrollment,starts_with("swan_"),starts_with("tocs_"),starts_with("rcad") ) %>% 
+  cor(use = "complete.obs")
+
+
+cor_clinical_numeric_plot=corrplot(cor_clinical_numeric, type="upper", order="hclust",
+         col=brewer.pal(n=8, name="RdYlBu"))
+cor_clinical_numeric_plot
+```
+
+```{r include=FALSE}
+corrplot(cor_clinical_numeric, order = 'AOE', type = 'upper')
+```
+
+```{r include=FALSE}
+corrplot.mixed(cor_clinical_numeric, order = 'AOE')
+```
+
+
+# Data Cleaning |Genetic Data
+
+- No empty rows 
+- no duplicate rows 
+- 449 distinct participants (no duplicate ids)
+
+# Data Exploration |Genetic Data
+
+
+```{r}
+skim(genetic_data)
+```
+
+
+
+```{r}
+genetic_hist=genetic_data_clean %>% 
+ select(-participant_id) %>% 
+  gather %>% 
+  ggplot(aes(x = value)) + facet_wrap(~ key, scales = "free", nrow = 3) +
+  geom_histogram()
+
+genetic_hist
+```
+
+# Data Exploration |Genetic Data
+
+```{r}
+boxplot_genetic=genetic_data_clean %>% 
+  select(-participant_id) %>% 
+  gather %>% 
+  ggplot(aes(x = 1, y = value)) + facet_wrap(~ key, scales = "free") + 
+  geom_boxplot() +
+  ylab("Value") +
+  xlab("Variable")
+
+boxplot_genetic
+```
+
+
+```{r find outliers genetic data, include=FALSE}
+find_outliers(genetic_data_clean)
+```
+
+# Data Exploration |Genetic Data
+
+```{r}
+#Tell the correlation to ignore the NAs with use argument
+cor_genetic_numeric=genetic_data_clean %>% 
+  select(-participant_id ) %>% 
+  cor(use = "complete.obs")
+
+
+cor_genetic_numeric_plot=corrplot(cor_genetic_numeric, type="upper", order="hclust",
+         col=brewer.pal(n=8, name="RdYlBu"))
+cor_clinical_numeric_plot
+```
+
+# Data Merging 
+
+- did a inner join to avoid missing values 
+- imputing values is complicated and require domain knowledge
+- Can introduce bias of imputation is not done correctly 
+
+```{r include=FALSE}
+df=inner_join(clinical_data_clean,genetic_data_clean,by = join_by("participant_id"))
+df_left=left_join(clinical_data_clean,genetic_data_clean,by = join_by("participant_id"))
+
+df %>% select(participant_id,tocs_mf_tscores,sex,ocd_prs,dx_adhd,adhd_prs) %>% skim()
+#df_left %>% select(participant_id,tocs_mf_tscores,sex,ocd_prs,dx_adhd,adhd_prs) %>% skim()
+
+#standardize ocd_prs
+
+df =df %>% mutate(tocs_mf_tscores_scale=scale(tocs_mf_tscores))
+
+df<-as.data.frame(df)
+```
+
+-Missing Completely at Random (MCAR):
+  - Missing data has no relation to any observed or unobserved variables.
+  - Example: Random sensor failures result in missing values.
+  - Simple univariate imputation techniques can be used(only concerned about the variable itself)
+  - (mean, median or most frequent)
+
+-Missing at Random (MAR):
+  - Missingness of one feature can be explained by other observed features.
+  - Example: Lower-income patients are less likely to complete certain sections of a medical survey.
+  - Imputation Techniques: kNN imputation and MissForest 
+
+- Missing Not at Random (MNAR):
+   - Missingness is related to the missing value itself or uncollected features.
+  - Example: Individuals not reporting their income due to privacy concerns.
+  - Collect more data or ask domain expert
+  
+-if imputing check the distribution before and after using plots like histograms
+
+
+
+
+# Linear regression
+The formula for our case is 
+
+#t_i = \beta_0 + \beta_1 sex_{i} + \beta_2 ocd_prs_{i} + \epsilon_i
+
+#where, z_i = \frac{y_i - \bar{y}}{\sigma_y}
+
+https://murraylax.org/rtutorials/multregression_standardized.html
+
+```{r}
+df_hist=df%>% 
+ select(tocs_mf_tscores,tocs_mf_tscores_scale,ocd_prs,adhd_prs) %>% 
+  gather %>% 
+  ggplot(aes(x = value)) + facet_wrap(~ key, scales = "free", nrow = 1) +
+  geom_histogram()
+
+df_hist
+
+df%>% 
+ select(tocs_mf_tscores,tocs_mf_tscores_scale,ocd_prs,adhd_prs) %>% skim()
+
+df%>% 
+ select(tocs_mf_tscores,tocs_mf_tscores_scale,ocd_prs,dx_adhd,sex,adhd_prs) %>% skim()
+#look at row patterns for missing data
+#left are row totals for the amount of time pattern appears
+#bottom are column total for total amount of missing observations for each variable
+df%>% 
+ select(tocs_mf_tscores,ocd_prs,dx_adhd,sex,adhd_prs) %>% md.pattern()
+
+#67 will be missing
+df%>% 
+ select(tocs_mf_tscores,ocd_prs,sex) %>% md.pattern()
+#31 will be missing
+df%>% 
+ select(dx_adhd,sex,adhd_prs) %>% md.pattern()
+
+```
+
+
+
+```{r}
+
+#df= df %>% mutate(sex=fct_relevel(sex,"Male","Female"))
+
+
+model_lm <- lm(tocs_mf_tscores ~ sex+ocd_prs,
+            data = df)
+summary(model_lm)
+
+
+```
+
+- A one standard deviation increase in  ocd_prs leads to a 0.031  decrease tocs_mf_tscores.
+- Being a Males results in 1.01 decrease in  tocs_mf_tscores.
+- (Intercept): outcome for female, ocd_prs=0 (no change in s.d)
+- p-values high, providing weak evidence against the null hypothesis that coefficients are zero
+- Multiple R-squared: proportion of variation of tocs_mf_tscores accounted for by our model
+- F-Statistic: Testing if all coefficients are zero
+- Residual standard deviation: provides how well the model predicts tocs_mf_tscores values
+- Coefficient std.error: Precision of estimate
+
+
+
+
+```{r}
+model_lm_2 <- lm(tocs_mf_tscores_scale ~ sex+ocd_prs,
+            data = df)
+summary(model_lm_2)
+
+
+
+```
+
+- A one standard deviation ocd_prs leads to a 0.03080 standard deviation decrease tocs_mf_tscores.
+- Being a Males results in 0.10103 decrease in standard deviation of tocs_mf_tscores.
+- Being a Female results in 0.10103 decrease in standard deviation of tocs_mf_tscores.
+
+
+
+# Linear regression assumptions
+
+- Linear relationship: There exists a linear relationship between the independent variable, x, and the dependent variable, y.
+
+- Independence: The residuals are independent. In particular, there is no correlation between consecutive residuals in time series data. Hierarchical structure is an example of non independence
+
+- Homoscedasticity: The residuals have constant variance.
+
+- Normality: The residuals of the model are normally distributed.
+
+- No Multicollinearity: None of the predictor variables are highly correlated with each other.
+
+
+For a categorical predictor, the linearity assumption is always true.
+```{r linearity assumption}
+plot <- ggplot(data = df, aes(x = ocd_prs, y = tocs_mf_tscores)) + geom_point(color = "blue") + 
+  ggtitle("tocs_mf_tscores vs ocd_prs") +
+  xlab("ocd_prs") + 
+  ylab("tocs_mf_tscores") 
+plot + geom_smooth(method = "lm")
+
+
+# Linearity of the data
+plot(model_lm, 1)
+```
+ The residual plot will shows no pattern.
+ 
+```{r}
+# Normality of residuals
+plot(model_lm, 2)
+```
+ 
+
+```{r}
+# distribution of studentized residuals
+
+sresid <- rstudent(model_lm) 
+shapiro.test(sresid)
+```
+
+
+The p-value is less < 0.05, it is clear that the residuals are not normally distributed.
+Could try Box-Cox transformations for negative values. But reasonably large sample size and graph looks good, could look at outliers.
+
+# Influential values 
+
+```{r}
+#Cook's distance
+plot(model_lm, 4)
+```
+Homoscedasticity Assumption:
+
+```{r}
+plot(model_lm, 3)
+```
+
+- Residuals are spread equally along the ranges of predictors. 
+- Horizontal line with equally spread points. 
+- In this is the case we can assume Homogeneity of variance
+
+```{r}
+# durbin watson test
+durbinWatsonTest(model_lm)
+```
+
+- p-value > 0.05, so the errors are not autocorrelated. 
+- We have not violated the independence assumption.
+
+# Logistic Regression
+
+```{r}
+
+table(df$dx_adhd,df$sex)
+
+model_glm <- glm( dx_adhd~sex+adhd_prs, data = df, 
+               family = binomial)
+summary(model_glm)
+
+df_subset = df %>% select(adhd_prs,sex,dx_adhd)
+
+exp(model_glm$coefficients)
+
+# Predict the probability (p) of diabete positivity
+probabilities <- predict(model_glm , type = "response",newdata = df_subset)
+predicted.classes <- ifelse(probabilities > 0.5, "pos", "neg")
+
+#for diagnostic use na ommited df
+
+
+```
+
+- Males have a  3.11 increased odds having ADHD over females
+- Intercept is a often called a constant term
+- Adjusted ORs
+- A one standard deviation increase in adhd_prs has a (1-0.87)% less odds of having ADHD.
+- For rare diseases, can be approx close to RR
+- Null deviance: How well the model with no predictors is fitted
+- Residual deviance: Probability fitted vs Observed error with predictors
+
+
+# Logistic regression assumptions 
+
+
+- Linearity in thelogit of the response [logit(p) = log(p/(1-p))] and the countinous predictors.
+- The observations should not be repeated measurements or matched data
+- Absence of Multicollinearity
+
+```{r}
+# Bind the logit and tidying the data for plot
+# Select only numeric predictors
+df_numerical <- df_subset %>%
+  dplyr::select_if(is.numeric) 
+predictors <- colnames(df_numerical)
+# Bind the logit and tidying the data for plot
+df_numerical<- df_numerical %>%
+  mutate(logit = log(probabilities/(1-probabilities))) %>%
+  gather(key = "predictors", value = "predictor.value", -logit)
+```
+
+```{r}
+ggplot(df_numerical, aes(logit, predictor.value))+
+  geom_point(size = 0.5, alpha = 0.5) +
+  geom_smooth(method = "loess") + 
+  theme_bw() + 
+  facet_wrap(~predictors, scales = "free_y")
+```
+
+```{r}
+crPlots(model_glm, terms = ~ . - sex,main = "Component+Residual (Partial Residual) Plot")
+```
+
+
+# influintial values
+
+```{r}
+plot(model_glm, which = 4, id.n = 3)
+```
+
+
+
+
