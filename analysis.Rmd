@@ -1,6 +1,6 @@
 ---
 title: "Untitled"
-output:  powerpoint_presentation
+output:  rmarkdown::github_document
 date: "2024-07-12"
 ---
 
