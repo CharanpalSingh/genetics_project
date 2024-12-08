@@ -1,6 +1,6 @@
 ---
 title: "Untitled"
-output:  rmarkdown::github_document
+output:  html_document
 date: "2024-07-12"
 ---
 
