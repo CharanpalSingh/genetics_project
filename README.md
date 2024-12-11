@@ -65,5 +65,5 @@ The project utilizes two datasets:
 ## How to Run
 
 1. Clone the repository:
-   ```bash
-   git clone https://github.com/yourusername/data-analysis-project.git
+   ```bash 
+   git clone https://github.com/CharanpalSingh/genetics_project.git
